@@ -1,0 +1,14 @@
+{
+	"defaultSeverity": "error",
+	"extends": [],
+	"jsRules": {},
+	"rules": {
+
+		/* Recommend the use of tabs over spaces */
+		"indent": [true, "tabs"],
+
+		/* https://palantir.github.io/tslint/rules/whitespace */
+		"whitespace": [true, "check-decl", "check-rest-spread", "check-preblock", "check-postbrace"]
+	},
+	"rulesDirectory": []
+}

@@ -1,0 +1,15 @@
+# This file controls what actually gets published to npm which in our case, only needs to be
+# the dist folder. All other files/folders are only needed during development.
+# https://docs.npmjs.com/misc/developers#keeping-files-out-of-your-package
+
+# Ignore everything in this project
+/**
+
+# Except the /dist folder which is our built project.
+!/dist/**/*
+
+# And the bin directory which contains the executable that kicks off this cli.
+!/bin/**/*
+
+# Note: The package.json file is included by default by npm so we don't need to tell npm to include
+# it back in here since we technically ignored it above.
