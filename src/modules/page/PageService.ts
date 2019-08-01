@@ -17,7 +17,7 @@ export class PageService {
 		this.debugService = debugFactory.create('PageService');
 	}
 
-	public async getCompetitionsDetails() {
+	public async getCompetitionsDetails() : Promise<Competition[]> {
 
 		const browser = await this.puppeteer.launch({
 			headless: false,
@@ -26,7 +26,10 @@ export class PageService {
 
 		const page = await browser.newPage();
 
-		await page.goto(`${this.baseUrl}/new_bw/results_by_events`);
+		await page.goto(`${this.baseUrl}/new_bw/results_by_events`, {
+			waitUntil: 'domcontentloaded'
+		});
+
 		const eventsTable: ElementHandle<Element> = await page.waitForSelector('#events_table');
 
 		const competitions: Competition[] = await this.parseEventsTable(eventsTable);
@@ -108,7 +111,8 @@ export class PageService {
 		const eventUrl = this.baseUrl + competition.eventLink;
 
 		await eventPage.goto(eventUrl, {
-			timeout: 0 //Disabling timeout
+			timeout: 0, //Disabling timeout
+			waitUntil: 'domcontentloaded' //Don't wait for external resources, we just need the dom
 		});
 
 		this.debugService.debug('Parsing event results for', eventUrl)
