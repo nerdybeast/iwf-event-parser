@@ -4,6 +4,7 @@ import { Competition } from '../../models/Competition';
 import { DebugFactory } from '../debug/DebugFactory';
 import { DebugService } from '../debug/DebugService';
 import { WeightCategoryResult } from '../../models/WeightCategoryResult';
+import { EventDetails } from '../../models/EventDetails';
 
 @Injectable()
 export class PageService {
@@ -32,14 +33,16 @@ export class PageService {
 
 		const eventsTable: ElementHandle<Element> = await page.waitForSelector('#events_table');
 
-		const competitions: Competition[] = await this.parseEventsTable(eventsTable);
-		this.debugService.debug('competitions', competitions);
+		const eventDetails: EventDetails[] = await this.parseEventsTable(eventsTable);
+		this.debugService.debug('eventDetails', eventDetails);
 
-		const resultsPromises = competitions.map((competition: Competition) => {
-			return this.parseEventResultsPage(browser, competition);
+		const resultsPromises = eventDetails.map((eventDetail: EventDetails) => {
+			return this.parseEventResultsPage(browser, eventDetail);
 		});
 
 		const results = await Promise.all(resultsPromises);
+
+		
 
 		await browser.close();
 
@@ -101,14 +104,14 @@ export class PageService {
 		return competitions;
 	}
 
-	public async parseEventResultsPage(browser: Browser, competition: Competition) {
+	public async parseEventResultsPage(browser: Browser, eventDetails: EventDetails) : Promise<Competition> {
 
-		if(!competition.eventLink) {
-			throw new Error(`Event ${competition.name} has no event link...`);
+		if(!eventDetails.eventLink) {
+			throw new Error(`Event ${eventDetails.name} has no event link...`);
 		}
 
 		const eventPage = await browser.newPage();
-		const eventUrl = this.baseUrl + competition.eventLink;
+		const eventUrl = this.baseUrl + eventDetails.eventLink;
 
 		await eventPage.goto(eventUrl, {
 			timeout: 0, //Disabling timeout
@@ -122,6 +125,7 @@ export class PageService {
 			this.parseTotalsTables(eventPage, '#women_total', 'female')
 		]);
 
+		const competition = new Competition(eventDetails);
 		competition.results = [...mensResults, ...womensResults];
 
 		await eventPage.close();
@@ -138,7 +142,96 @@ export class PageService {
 			//NOTE: You are in the browser context in this call back function so no node.js things in here...
 			//Meaning "this.xxxxx" will refer to the browser context, NOT this node.js process.
 
+			
 			return resultsTotalsDivs.map(resultTotal => {
+				/*
+				<div class="results_totals">
+					<h1>55 kg Men</h1>
+					<table class="results">
+						<thead>
+							<tr>
+								<th class="w35" width="35"><em>Rank</em></th>
+								<th><em>Name</em></th>
+								<th class="w80" width="80"><em>Born</em></th>
+								<th class="w40" width="40"><em>Nation</em></th>
+								<th class="w50 ar" width="50"><em>B.weight</em></th>
+								<th class="w35 ac" width="35"><em>Group</em></th>
+								<th class="w40 ar" width="40"><em>Snatch</em></th>
+								<th class="w45 ar" width="45"><em>CI&amp;Jerk</em></th>
+								<th class="w40 ar" width="40"><em>Total</em></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td class="r_dark">1</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=singh-ch-rishikanta-1998-07-05&amp;id=16397" class="e_l">SINGH CH Rishikanta</a></td>
+								<td>05.07.1998</td>
+								<td><b>IND</b></td>
+								<td class="ar">55.00</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">105</td>
+								<td class="r_dark ar">130</td>
+								<td class="r_dark ar"><b>235</b></td>
+							</tr>
+							<tr class="even">
+								<td class="r_dark">2</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=brechtefeld-elson-edward-1994-03-02&amp;id=9607" class="e_l">BRECHTEFELD Elson Edward</a></td>
+								<td>02.03.1994</td>
+								<td><b>NRU</b></td>
+								<td class="ar">54.70</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">93</td>
+								<td class="r_dark ar">122</td>
+								<td class="r_dark ar"><b>215</b></td>
+							</tr>
+							<tr>
+								<td class="r_dark">3</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=nauari-gahuna-ian-2002-08-05&amp;id=16375" class="e_l">NAUARI Gahuna Ian</a></td>
+								<td>05.08.2002</td>
+								<td><b>PNG</b></td>
+								<td class="ar">54.65</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">80</td>
+								<td class="r_dark ar">108</td>
+								<td class="r_dark ar"><b>188</b></td>
+							</tr>
+							<tr class="even">
+								<td class="r_dark">4</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=shadrack-walter-2000-10-06&amp;id=16166" class="e_l">SHADRACK Walter</a></td>
+								<td>06.10.2000</td>
+								<td><b>SOL</b></td>
+								<td class="ar">54.75</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">80</td>
+								<td class="r_dark ar">105</td>
+								<td class="r_dark ar"><b>185</b></td>
+							</tr>
+							<tr>
+								<td class="r_dark">5</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=sinaka-scofield-goava-1998-01-21&amp;id=16374" class="e_l">SINAKA Scofield Goava</a></td>
+								<td>21.01.1998</td>
+								<td><b>PNG</b></td>
+								<td class="ar">53.90</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">75</td>
+								<td class="r_dark ar">108</td>
+								<td class="r_dark ar"><b>183</b></td>
+							</tr>
+							<tr class="even">
+								<td class="r_dark">---</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=erati-kaimauri-2004-06-13&amp;id=16373" class="e_l">ERATI Kaimauri</a></td>
+								<td>13.06.2004</td>
+								<td><b>KIR</b></td>
+								<td class="ar">53.80</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">---</td>
+								<td class="r_dark ar">75</td>
+								<td class="r_dark ar">---</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+				*/
 
 				const resultsTable = resultTotal.getElementsByTagName('table')[0];
 				const resultsTableTbody = resultsTable.getElementsByTagName('tbody')[0];

@@ -1,8 +1,15 @@
-export class Competition {
-	public id?: string;
-	public eventLink?: string;
-	public date?: string;
-	public name?: string;
-	public location?: string;
-	public results?: any;
+import { WeightCategoryResult } from './WeightCategoryResult';
+import { EventDetails } from './EventDetails';
+
+export class Competition extends EventDetails {
+	public results?: WeightCategoryResult[];
+
+	constructor(eventDetails: EventDetails) {
+		super();
+		this.date = eventDetails.date;
+		this.eventLink = eventDetails.eventLink;
+		this.id = eventDetails.id;
+		this.location = eventDetails.location;
+		this.name = eventDetails.name;
+	}
 }
