@@ -11,5 +11,6 @@ export class Competition extends EventDetails {
 		this.id = eventDetails.id;
 		this.location = eventDetails.location;
 		this.name = eventDetails.name;
+		this.qualificationPeriod = eventDetails.qualificationPeriod;
 	}
 }

@@ -5,20 +5,35 @@ import { DebugFactory } from '../debug/DebugFactory';
 import { DebugService } from '../debug/DebugService';
 import { WeightCategoryResult } from '../../models/WeightCategoryResult';
 import { EventDetails } from '../../models/EventDetails';
+import { Firestore } from '@google-cloud/firestore';
+import Moment from 'moment';
 
 @Injectable()
 export class PageService {
 
 	private puppeteer: typeof puppeteerModule;
 	private debugService: DebugService;
+	private db: Firestore;
+	private moment: typeof Moment;
 	private baseUrl: string = 'https://www.iwf.net';
 
-	constructor(@Inject('puppeteer') puppeteer: typeof puppeteerModule, debugFactory: DebugFactory) {
+	constructor(@Inject('puppeteer') puppeteer: typeof puppeteerModule, debugFactory: DebugFactory, @Inject('db') db: Firestore, @Inject('moment') moment: typeof Moment) {
 		this.puppeteer = puppeteer;
 		this.debugService = debugFactory.create('PageService');
+		this.db = db;
+		this.moment = moment;
 	}
 
 	public async getCompetitionsDetails() : Promise<Competition[]> {
+
+		const x: FirebaseFirestore.QuerySnapshot = await this.db.collection('qualification-periods').get();
+		const qualificationPeriods = x.docs.map(y => {
+			return {
+				period: y.get('period'),
+				startDate: this.moment(y.get('startDate')),
+				endDate: this.moment(y.get('endDate'))
+			};
+		})
 
 		const browser = await this.puppeteer.launch({
 			headless: false,
@@ -34,6 +49,17 @@ export class PageService {
 		const eventsTable: ElementHandle<Element> = await page.waitForSelector('#events_table');
 
 		const eventDetails: EventDetails[] = await this.parseEventsTable(eventsTable);
+		eventDetails.forEach(eventDetail => {
+			if(eventDetail.date) {
+				const eventDate = this.moment(eventDetail.date);
+				qualificationPeriods.forEach(qualificationPeriod => {
+					if(eventDate.isBetween(qualificationPeriod.startDate, qualificationPeriod.endDate)) {
+						eventDetail.qualificationPeriod = qualificationPeriod.period;
+					}
+				})
+			}
+		});
+
 		this.debugService.debug('eventDetails', eventDetails);
 
 		const resultsPromises = eventDetails.map((eventDetail: EventDetails) => {
@@ -42,9 +68,22 @@ export class PageService {
 
 		const results = await Promise.all(resultsPromises);
 
-		
-
 		await browser.close();
+
+		const batch = this.db.batch();
+
+		results.forEach(result => {
+
+			if(result.id !== undefined) {
+				const docRef = this.db.collection('eventResults').doc(result.id);
+				batch.set(docRef, result);
+			}
+
+		});
+
+		const result = await batch.commit();
+
+		this.debugService.debug('db write result', result);
 
 		return results;
 	}
