@@ -26,14 +26,19 @@ export class PageService {
 
 	public async getCompetitionsDetails() : Promise<Competition[]> {
 
-		const x: FirebaseFirestore.QuerySnapshot = await this.db.collection('qualification-periods').get();
-		const qualificationPeriods = x.docs.map(y => {
+		const [qualificationPeriodsSnapshot, competitionEventsSnapshot] = await Promise.all([
+			this.db.collection('qualification-periods').get(),
+			this.db.collection('competition-events').get()
+		]);
+
+
+		const qualificationPeriods = qualificationPeriodsSnapshot.docs.map(y => {
 			return {
 				period: y.get('period'),
 				startDate: this.moment(y.get('startDate')),
 				endDate: this.moment(y.get('endDate'))
 			};
-		})
+		});
 
 		const browser = await this.puppeteer.launch({
 			headless: false,
@@ -56,7 +61,7 @@ export class PageService {
 					if(eventDate.isBetween(qualificationPeriod.startDate, qualificationPeriod.endDate)) {
 						eventDetail.qualificationPeriod = qualificationPeriod.period;
 					}
-				})
+				});
 			}
 		});
 
