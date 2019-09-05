@@ -1,21 +1,40 @@
 import { Module, Provider } from '@nestjs/common';
-import admin from 'firebase-admin';
+import firebase, { firestore } from 'firebase';
+import { CompetitionEventDomain } from './CompetitionEventDomain';
+import { ConfigModule } from '../config/ConfigModule';
+import { ConfigService } from '../config/ConfigService';
+
+//Needed for side effects
+import 'firebase/firestore';
 
 export const dbProvider: Provider = {
 	provide: 'db',
-	useFactory: () => {
+	inject: [
+		//This provider is only available in this context because the module below imports the ConfigModule
+		ConfigService
+	],
+	useFactory: (configService: ConfigService) => {
 
-		//Reads from the "FIREBASE_CONFIG" env variable.
-		admin.initializeApp();
+		//https://firebase.google.com/docs/admin/setup/
+		firebase.initializeApp(configService.FirebaseOptions())
 
-		const db = admin.firestore();
+		const db: firestore.Firestore = firebase.firestore();
 		return db;
 	}
 }
 
 @Module({
-	providers: [dbProvider],
-	exports: [dbProvider]
+	imports: [
+		ConfigModule
+	],
+	providers: [
+		dbProvider,
+		CompetitionEventDomain
+	],
+	exports: [
+		dbProvider,
+		CompetitionEventDomain
+	]
 })
 export class FirestoreModule {
 

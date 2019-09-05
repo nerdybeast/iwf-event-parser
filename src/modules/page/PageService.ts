@@ -5,32 +5,35 @@ import { DebugFactory } from '../debug/DebugFactory';
 import { DebugService } from '../debug/DebugService';
 import { WeightCategoryResult } from '../../models/WeightCategoryResult';
 import { EventDetails } from '../../models/EventDetails';
-import { Firestore } from '@google-cloud/firestore';
 import Moment from 'moment';
+import { CompetitionEventDomain } from '../db/CompetitionEventDomain';
+import { IEventDetails } from '../../models/IEventDetails';
+import { firestore } from 'firebase';
 
 @Injectable()
 export class PageService {
 
 	private puppeteer: typeof puppeteerModule;
 	private debugService: DebugService;
-	private db: Firestore;
+	private db: firestore.Firestore;
 	private moment: typeof Moment;
+	private competitionEventDomain: CompetitionEventDomain;
 	private baseUrl: string = 'https://www.iwf.net';
 
-	constructor(@Inject('puppeteer') puppeteer: typeof puppeteerModule, debugFactory: DebugFactory, @Inject('db') db: Firestore, @Inject('moment') moment: typeof Moment) {
+	constructor(@Inject('puppeteer') puppeteer: typeof puppeteerModule, debugFactory: DebugFactory, @Inject('db') db: firestore.Firestore, @Inject('moment') moment: typeof Moment, competitionEventDomain: CompetitionEventDomain) {
 		this.puppeteer = puppeteer;
 		this.debugService = debugFactory.create('PageService');
 		this.db = db;
 		this.moment = moment;
+		this.competitionEventDomain = competitionEventDomain;
 	}
 
 	public async getCompetitionsDetails() : Promise<Competition[]> {
 
-		const [qualificationPeriodsSnapshot, competitionEventsSnapshot] = await Promise.all([
+		const [qualificationPeriodsSnapshot, allEventsDetails] = await Promise.all([
 			this.db.collection('qualification-periods').get(),
-			this.db.collection('competition-events').get()
+			this.competitionEventDomain.getAll()
 		]);
-
 
 		const qualificationPeriods = qualificationPeriodsSnapshot.docs.map(y => {
 			return {
@@ -52,8 +55,8 @@ export class PageService {
 		});
 
 		const eventsTable: ElementHandle<Element> = await page.waitForSelector('#events_table');
+		const eventDetails: IEventDetails[] = await this.parseEventsTable(eventsTable);
 
-		const eventDetails: EventDetails[] = await this.parseEventsTable(eventsTable);
 		eventDetails.forEach(eventDetail => {
 			if(eventDetail.date) {
 				const eventDate = this.moment(eventDetail.date);
@@ -67,20 +70,24 @@ export class PageService {
 
 		this.debugService.debug('eventDetails', eventDetails);
 
-		const resultsPromises = eventDetails.map((eventDetail: EventDetails) => {
-			return this.parseEventResultsPage(browser, eventDetail);
-		});
+		const eventDetailsToSave = eventDetails.reduce((prev: IEventDetails[], curr: IEventDetails) => {
 
-		const results = await Promise.all(resultsPromises);
+			if(!allEventsDetails.find(x => x.id === curr.id)) {
+				prev.push(curr);
+			}
 
-		await browser.close();
+			return prev;
+
+		}, []);
+
+		this.debugService.debug('dfdf', eventDetailsToSave);
 
 		const batch = this.db.batch();
 
-		results.forEach(result => {
+		eventDetailsToSave.forEach(result => {
 
 			if(result.id !== undefined) {
-				const docRef = this.db.collection('eventResults').doc(result.id);
+				const docRef = this.competitionEventDomain.nativeCollection.doc(result.id);
 				batch.set(docRef, result);
 			}
 
@@ -90,14 +97,23 @@ export class PageService {
 
 		this.debugService.debug('db write result', result);
 
+		const resultsPromises = eventDetails.map((eventDetail: EventDetails) => {
+			return this.parseEventResultsPage(browser, eventDetail);
+		});
+
+		const results = await Promise.all(resultsPromises);
+
+		await browser.close();
+
+
 		return results;
 	}
 
-	public async parseEventsTable(eventsTable: ElementHandle<Element>) : Promise<Competition[]> {
+	public async parseEventsTable(eventsTable: ElementHandle<Element>) : Promise<IEventDetails[]> {
 
 		//NOTE: You cannot add any node js/typescript inside of this "eval" function, this code is technically
 		//being executed on the puppeteer page and has the plain vanilla browser compatible javascript.
-		let competitions: Competition[] = await eventsTable.$$eval('tbody tr', (rows: Element[]) => {
+		let eventDetails: IEventDetails[] = await eventsTable.$$eval('tbody tr', (rows: Element[]) => {
 
 			return rows.map(tr => {
 
@@ -127,25 +143,25 @@ export class PageService {
 				const tds = [...tr.getElementsByTagName('td')];
 	
 				return {
-					id: undefined,
-					eventLink: tds[0].getElementsByTagName('a')[0].getAttribute('href') || undefined,
-					date: tds[0].textContent || undefined,
-					name: tds[1].textContent || undefined,
-					location: tds[2].textContent || undefined
+					id: '',
+					eventLink: tds[0].getElementsByTagName('a')[0].getAttribute('href') || '',
+					date: tds[0].textContent || '',
+					name: tds[1].textContent || '',
+					location: tds[2].textContent || ''
 				};
 			});
 		});
 
-		competitions = competitions.map(competition => {
+		eventDetails = eventDetails.map(eventDetail => {
 
-			if(competition.eventLink) {
-				competition.id = new URL(competition.eventLink, this.baseUrl).searchParams.get('event') || undefined;
+			if(eventDetail.eventLink) {
+				eventDetail.id = new URL(eventDetail.eventLink, this.baseUrl).searchParams.get('event') || '';
 			}
 
-			return competition;
+			return eventDetail;
 		});
 
-		return competitions;
+		return eventDetails as IEventDetails[];
 	}
 
 	public async parseEventResultsPage(browser: Browser, eventDetails: EventDetails) : Promise<Competition> {
