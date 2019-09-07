@@ -3,12 +3,14 @@ import puppeteerModule, { ElementHandle, Browser, Page } from 'puppeteer';
 import { Competition } from '../../models/Competition';
 import { DebugFactory } from '../debug/DebugFactory';
 import { DebugService } from '../debug/DebugService';
-import { WeightCategoryResult } from '../../models/WeightCategoryResult';
-import { EventDetails } from '../../models/EventDetails';
+//import { WeightCategoryResult } from '../../models/WeightCategoryResult';
+//import { EventDetails } from '../../models/EventDetails';
 import Moment from 'moment';
 import { CompetitionEventDomain } from '../db/CompetitionEventDomain';
 import { IEventDetails } from '../../models/IEventDetails';
 import { firestore } from 'firebase';
+import undefined from 'firebase/empty-import';
+import { IWeightCategoryResult, IPageWeightCategoryResult, ICompetitionResult, IPageCompetitionResult, IAthlete } from '../../models/IWeightCategoryResult';
 
 @Injectable()
 export class PageService {
@@ -28,7 +30,7 @@ export class PageService {
 		this.competitionEventDomain = competitionEventDomain;
 	}
 
-	public async getCompetitionsDetails() : Promise<Competition[]> {
+	public async getCompetitionsDetails() : Promise<void> {
 
 		const [qualificationPeriodsSnapshot, allEventsDetails] = await Promise.all([
 			this.db.collection('qualification-periods').get(),
@@ -97,7 +99,7 @@ export class PageService {
 
 		this.debugService.debug('db write result', result);
 
-		const resultsPromises = eventDetails.map((eventDetail: EventDetails) => {
+		const resultsPromises = eventDetails.map((eventDetail: IEventDetails) => {
 			return this.parseEventResultsPage(browser, eventDetail);
 		});
 
@@ -105,8 +107,21 @@ export class PageService {
 
 		await browser.close();
 
+		const athletes = [];
 
-		return results;
+		results.forEach(competition => {
+
+			(competition.results || []).forEach(compResult => {
+
+				compResult.results.forEach(competitionResult => {
+
+					if(!athletes.find(x => x.id === competitionResult.athlete.id))
+
+				});
+
+			});
+
+		});
 	}
 
 	public async parseEventsTable(eventsTable: ElementHandle<Element>) : Promise<IEventDetails[]> {
@@ -164,7 +179,7 @@ export class PageService {
 		return eventDetails as IEventDetails[];
 	}
 
-	public async parseEventResultsPage(browser: Browser, eventDetails: EventDetails) : Promise<Competition> {
+	public async parseEventResultsPage(browser: Browser, eventDetails: IEventDetails) : Promise<Competition> {
 
 		if(!eventDetails.eventLink) {
 			throw new Error(`Event ${eventDetails.name} has no event link...`);
@@ -181,8 +196,8 @@ export class PageService {
 		this.debugService.debug('Parsing event results for', eventUrl)
 
 		const [mensResults, womensResults] = await Promise.all([
-			this.parseTotalsTables(eventPage, '#men_total', 'male'),
-			this.parseTotalsTables(eventPage, '#women_total', 'female')
+			this.parseTotalsTables(eventDetails, eventPage, '#men_total', 'male'),
+			this.parseTotalsTables(eventDetails, eventPage, '#women_total', 'female')
 		]);
 
 		const competition = new Competition(eventDetails);
@@ -193,16 +208,64 @@ export class PageService {
 		return competition;
 	}
 
-	private async parseTotalsTables(page: Page, selector: string, gender: string) {
+	private async parseTotalsTables(eventDetails: IEventDetails, page: Page, selector: string, gender: string) : ICompetitionResult[] {
 
 		const totalsDiv = await page.waitForSelector(selector);
+		const weightCategoryResults: IPageWeightCategoryResult[] = this.getResultsTotals(totalsDiv);
 
-		const results: WeightCategoryResult[] = await totalsDiv.$$eval('.results_totals', resultsTotalsDivs => {
+		return weightCategoryResults.map((weightCategoryResult: IPageWeightCategoryResult) : IWeightCategoryResult => {
+
+			const athletes: IAthlete[] = [];
+			const results: ICompetitionResult[] = [];
+
+			weightCategoryResult.results.forEach((competitionResult: IPageCompetitionResult) : void => {
+
+				const { athlete } = competitionResult;
+				const { bioLink, birthDate, name, nationAbbreviation } = athlete;
+				const athleteUrl = new URL(bioLink, this.baseUrl);
+				const id = Number(athleteUrl.searchParams.get('id') || 0);
+
+				athletes.push({
+					id,
+					bioLink,
+					birthDate,
+					name,
+					nationAbbreviation
+				});
+
+				results.push({
+					competitionId: eventDetails.id,
+					
+				})
+
+			});
+
+			// weightCategoryResult.results.forEach((competitionResult: IPageCompetitionResult) => {
+			// 	const athleteUrl = new URL(competitionResult.athlete.bioLink, this.baseUrl);
+			// 	competitionResult.athlete.id = Number(athleteUrl.searchParams.get('id') || 0);
+			// 	competitionResult.athleteId = competitionResult.athlete.id;
+			// 	competitionResult.competitionId = eventDetails.id;
+			// });
+
+
+			const { weightClass } = weightCategoryResult;
+
+			return {
+				gender,
+				weightClass,
+				athletes,
+				results
+			};
+		});
+	}
+
+	private getResultsTotals(totalsDiv: ElementHandle<Element>) : IPageWeightCategoryResult[] {
+
+		const weightCategoryResults: IPageWeightCategoryResult[] = await totalsDiv.$$eval('.results_totals', resultsTotalsDivs => {
 
 			//NOTE: You are in the browser context in this call back function so no node.js things in here...
 			//Meaning "this.xxxxx" will refer to the browser context, NOT this node.js process.
 
-			
 			return resultsTotalsDivs.map(resultTotal => {
 				/*
 				<div class="results_totals">
@@ -302,10 +365,10 @@ export class PageService {
 					const tds = Array.from(tr.getElementsByTagName('td'));
 	
 					const athlete = {
-						name: tds[1].textContent,
-						bioLink: tds[1].getElementsByTagName('a')[0].getAttribute('href'),
-						birthDate: tds[2].textContent,
-						nationAbbreviation: tds[3].textContent
+						name: tds[1].textContent || 'unknown',
+						bioLink: tds[1].getElementsByTagName('a')[0].getAttribute('href') || 'unknown',
+						birthDate: tds[2].textContent || 'unknown',
+						nationAbbreviation: tds[3].textContent || 'unknown'
 					};
 	
 					const competitionResult = {
@@ -322,16 +385,12 @@ export class PageService {
 	
 				return {
 					weightClass: (resultTotal.getElementsByTagName('h1')[0].textContent || '').split(' ')[0],
-					results,
-					gender: undefined
+					results
 				};
 			});
 
 		});
 
-		return results.map(result => {
-			result.gender = gender;
-			return result;
-		});
+		return weightCategoryResults;
 	}
 }
