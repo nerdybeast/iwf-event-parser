@@ -1,5 +1,5 @@
-export interface IAthlete {
-	id: number;
+export interface IPageAthlete {
+	id: string;
 	name: string;
 	bioLink: string;
 	birthDate: string;

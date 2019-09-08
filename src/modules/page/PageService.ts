@@ -1,16 +1,18 @@
 import { Injectable, Inject } from '@nestjs/common';
 import puppeteerModule, { ElementHandle, Browser, Page } from 'puppeteer';
-import { Competition } from '../../models/Competition';
 import { DebugFactory } from '../debug/DebugFactory';
 import { DebugService } from '../debug/DebugService';
-//import { WeightCategoryResult } from '../../models/WeightCategoryResult';
-//import { EventDetails } from '../../models/EventDetails';
 import Moment from 'moment';
 import { CompetitionEventDomain } from '../db/CompetitionEventDomain';
 import { IEventDetails } from '../../models/IEventDetails';
 import { firestore } from 'firebase';
-import undefined from 'firebase/empty-import';
-import { IWeightCategoryResult, IPageWeightCategoryResult, ICompetitionResult, IPageCompetitionResult, IAthlete } from '../../models/IWeightCategoryResult';
+import { IWeightCategoryResult } from '../../models/IWeightCategoryResult';
+import { IPageWeightCategoryResult } from '../../models/IPageWeightCategoryResult';
+import { IPageAthleteResult } from '../../models/IPageAthleteResult';
+import { IPageAthlete } from '../../models/IPageAthlete';
+import { IAthleteResult } from '../../models/IAthleteResult';
+import { ICompetition } from '../../models/ICompetition';
+import { AthleteDomain } from '../db/AthleteDomain';
 
 @Injectable()
 export class PageService {
@@ -20,14 +22,23 @@ export class PageService {
 	private db: firestore.Firestore;
 	private moment: typeof Moment;
 	private competitionEventDomain: CompetitionEventDomain;
+	private athleteDomain: AthleteDomain;
 	private baseUrl: string = 'https://www.iwf.net';
 
-	constructor(@Inject('puppeteer') puppeteer: typeof puppeteerModule, debugFactory: DebugFactory, @Inject('db') db: firestore.Firestore, @Inject('moment') moment: typeof Moment, competitionEventDomain: CompetitionEventDomain) {
+	constructor(
+		@Inject('puppeteer') puppeteer: typeof puppeteerModule, 
+		debugFactory: DebugFactory, 
+		@Inject('db') db: firestore.Firestore, 
+		@Inject('moment') moment: typeof Moment, 
+		competitionEventDomain: CompetitionEventDomain,
+		athleteDomain: AthleteDomain
+	) {
 		this.puppeteer = puppeteer;
 		this.debugService = debugFactory.create('PageService');
 		this.db = db;
 		this.moment = moment;
 		this.competitionEventDomain = competitionEventDomain;
+		this.athleteDomain = athleteDomain;
 	}
 
 	public async getCompetitionsDetails() : Promise<void> {
@@ -46,7 +57,7 @@ export class PageService {
 		});
 
 		const browser = await this.puppeteer.launch({
-			headless: false,
+			headless: true,
 			slowMo: 50
 		});
 
@@ -84,44 +95,51 @@ export class PageService {
 
 		this.debugService.debug('dfdf', eventDetailsToSave);
 
-		const batch = this.db.batch();
+		let batch = this.db.batch();
 
 		eventDetailsToSave.forEach(result => {
-
 			if(result.id !== undefined) {
 				const docRef = this.competitionEventDomain.nativeCollection.doc(result.id);
 				batch.set(docRef, result);
 			}
-
 		});
 
-		const result = await batch.commit();
+		await batch.commit();
 
-		this.debugService.debug('db write result', result);
-
-		const resultsPromises = eventDetails.map((eventDetail: IEventDetails) => {
+		const resultsPromises : Promise<ICompetition>[] = eventDetails.map((eventDetail: IEventDetails) => {
 			return this.parseEventResultsPage(browser, eventDetail);
 		});
-
-		const results = await Promise.all(resultsPromises);
-
+		
+		const results: ICompetition[] = await Promise.all(resultsPromises);
+		
 		await browser.close();
 
-		const athletes = [];
+		//Here we are looping over all competitions.
+		for (const competition of results) {
 
-		results.forEach(competition => {
-
-			(competition.results || []).forEach(compResult => {
-
-				compResult.results.forEach(competitionResult => {
-
-					if(!athletes.find(x => x.id === competitionResult.athlete.id))
-
+			//Here we are looping over the weight catgories for a specific competition
+			for(const weightCategoryResult of competition.weightCategoryResults) {
+	
+				const athletes: IPageAthlete[] = [];
+	
+				weightCategoryResult.athletes.forEach((athlete: IPageAthlete) => {
+					if(!athletes.find(x => x.id === athlete.id)) {
+						athletes.push(athlete);
+					}
 				});
+	
+				let batch = this.db.batch();
+	
+				athletes.forEach((athlete: IPageAthlete) => {
+					const docRef = this.athleteDomain.nativeCollection.doc(athlete.id.toString());
+					batch.set(docRef, athlete);
+				});
+	
+				await batch.commit();
+			}
+		}
 
-			});
-
-		});
+		this.debugService.debug('db write complete');
 	}
 
 	public async parseEventsTable(eventsTable: ElementHandle<Element>) : Promise<IEventDetails[]> {
@@ -179,7 +197,7 @@ export class PageService {
 		return eventDetails as IEventDetails[];
 	}
 
-	public async parseEventResultsPage(browser: Browser, eventDetails: IEventDetails) : Promise<Competition> {
+	public async parseEventResultsPage(browser: Browser, eventDetails: IEventDetails) : Promise<ICompetition> {
 
 		if(!eventDetails.eventLink) {
 			throw new Error(`Event ${eventDetails.name} has no event link...`);
@@ -200,66 +218,56 @@ export class PageService {
 			this.parseTotalsTables(eventDetails, eventPage, '#women_total', 'female')
 		]);
 
-		const competition = new Competition(eventDetails);
-		competition.results = [...mensResults, ...womensResults];
-
 		await eventPage.close();
 
-		return competition;
+		return {
+			date: eventDetails.date,
+			eventLink: eventDetails.eventLink,
+			id: eventDetails.id,
+			location: eventDetails.location,
+			name: eventDetails.name,
+			qualificationPeriod: eventDetails.qualificationPeriod,
+			weightCategoryResults: [...mensResults, ...womensResults]
+		};
 	}
 
-	private async parseTotalsTables(eventDetails: IEventDetails, page: Page, selector: string, gender: string) : ICompetitionResult[] {
+	private async parseTotalsTables(eventDetails: IEventDetails, page: Page, selector: string, gender: string) : Promise<IWeightCategoryResult[]> {
 
 		const totalsDiv = await page.waitForSelector(selector);
-		const weightCategoryResults: IPageWeightCategoryResult[] = this.getResultsTotals(totalsDiv);
+		const pageWeightCategoryResults: IPageWeightCategoryResult[] = await this.getResultsTotals(totalsDiv);
 
-		return weightCategoryResults.map((weightCategoryResult: IPageWeightCategoryResult) : IWeightCategoryResult => {
+		//We are in the context of a single competition, looping through each weight category here.
+		return pageWeightCategoryResults.map((pageWeightCategoryResult: IPageWeightCategoryResult) : IWeightCategoryResult => {
 
-			const athletes: IAthlete[] = [];
-			const results: ICompetitionResult[] = [];
+			const athletes: IPageAthlete[] = [];
+			const { weightClass } = pageWeightCategoryResult;
 
-			weightCategoryResult.results.forEach((competitionResult: IPageCompetitionResult) : void => {
+			const results: IAthleteResult[] = pageWeightCategoryResult.results.map((pageAthleteResult: IPageAthleteResult) : IAthleteResult => {
 
-				const { athlete } = competitionResult;
-				const { bioLink, birthDate, name, nationAbbreviation } = athlete;
-				const athleteUrl = new URL(bioLink, this.baseUrl);
-				const id = Number(athleteUrl.searchParams.get('id') || 0);
+				const { athlete, bodyWeight, cj, rank, snatch, total } = pageAthleteResult;
+				athletes.push(athlete);
 
-				athletes.push({
-					id,
-					bioLink,
-					birthDate,
-					name,
-					nationAbbreviation
-				});
-
-				results.push({
+				return {
+					athleteId: athlete.id,
 					competitionId: eventDetails.id,
-					
-				})
-
+					bodyWeight,
+					cj,
+					rank,
+					snatch,
+					total
+				};
 			});
 
-			// weightCategoryResult.results.forEach((competitionResult: IPageCompetitionResult) => {
-			// 	const athleteUrl = new URL(competitionResult.athlete.bioLink, this.baseUrl);
-			// 	competitionResult.athlete.id = Number(athleteUrl.searchParams.get('id') || 0);
-			// 	competitionResult.athleteId = competitionResult.athlete.id;
-			// 	competitionResult.competitionId = eventDetails.id;
-			// });
-
-
-			const { weightClass } = weightCategoryResult;
-
 			return {
-				gender,
 				weightClass,
+				gender,
 				athletes,
 				results
 			};
 		});
 	}
 
-	private getResultsTotals(totalsDiv: ElementHandle<Element>) : IPageWeightCategoryResult[] {
+	private async getResultsTotals(totalsDiv: ElementHandle<Element>) : Promise<IPageWeightCategoryResult[]> {
 
 		const weightCategoryResults: IPageWeightCategoryResult[] = await totalsDiv.$$eval('.results_totals', resultsTotalsDivs => {
 
@@ -363,10 +371,19 @@ export class PageService {
 				const results = trs.map(tr => {
 	
 					const tds = Array.from(tr.getElementsByTagName('td'));
-	
+					const bioLink = tds[1].getElementsByTagName('a')[0].getAttribute('href') || 'unknown';
+
+					let id = '0';
+
+					if(bioLink !== 'unknown') {
+						const url = new URL(bioLink, 'http://test.com');
+						id = url.searchParams.get('id') || '0';
+					}
+
 					const athlete = {
+						id,
 						name: tds[1].textContent || 'unknown',
-						bioLink: tds[1].getElementsByTagName('a')[0].getAttribute('href') || 'unknown',
+						bioLink,
 						birthDate: tds[2].textContent || 'unknown',
 						nationAbbreviation: tds[3].textContent || 'unknown'
 					};

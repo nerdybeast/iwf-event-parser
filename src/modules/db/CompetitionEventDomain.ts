@@ -7,7 +7,7 @@ import { EventDetails } from '../../models/EventDetails';
 export class CompetitionEventDomain extends BaseDomain {
 
 	constructor(@Inject('db') db: firestore.Firestore) {
-		super(db, 'competition-events')
+		super(db, 'competition-events');
 	}
 
 	public async getAll() : Promise<EventDetails[]> {
