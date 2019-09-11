@@ -4,6 +4,7 @@ import { CompetitionEventDomain } from './CompetitionEventDomain';
 import { ConfigModule } from '../config/ConfigModule';
 import { ConfigService } from '../config/ConfigService';
 import { AthleteDomain } from './AthleteDomain';
+import { AthleteResultDomain } from './AthleteResultDomain';
 
 //Needed for side effects
 import 'firebase/firestore';
@@ -31,12 +32,14 @@ export const dbProvider: Provider = {
 	providers: [
 		dbProvider,
 		CompetitionEventDomain,
-		AthleteDomain
+		AthleteDomain,
+		AthleteResultDomain
 	],
 	exports: [
 		dbProvider,
 		CompetitionEventDomain,
-		AthleteDomain
+		AthleteDomain,
+		AthleteResultDomain
 	]
 })
 export class FirestoreModule {

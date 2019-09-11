@@ -13,6 +13,7 @@ import { IPageAthlete } from '../../models/IPageAthlete';
 import { IAthleteResult } from '../../models/IAthleteResult';
 import { ICompetition } from '../../models/ICompetition';
 import { AthleteDomain } from '../db/AthleteDomain';
+import { AthleteResultDomain } from '../db/AthleteResultDomain';
 
 @Injectable()
 export class PageService {
@@ -23,6 +24,7 @@ export class PageService {
 	private moment: typeof Moment;
 	private competitionEventDomain: CompetitionEventDomain;
 	private athleteDomain: AthleteDomain;
+	private athleteResultDomain: AthleteResultDomain;
 	private baseUrl: string = 'https://www.iwf.net';
 
 	constructor(
@@ -31,7 +33,8 @@ export class PageService {
 		@Inject('db') db: firestore.Firestore, 
 		@Inject('moment') moment: typeof Moment, 
 		competitionEventDomain: CompetitionEventDomain,
-		athleteDomain: AthleteDomain
+		athleteDomain: AthleteDomain,
+		athleteResultDomain: AthleteResultDomain
 	) {
 		this.puppeteer = puppeteer;
 		this.debugService = debugFactory.create('PageService');
@@ -39,13 +42,16 @@ export class PageService {
 		this.moment = moment;
 		this.competitionEventDomain = competitionEventDomain;
 		this.athleteDomain = athleteDomain;
+		this.athleteResultDomain = athleteResultDomain
 	}
 
 	public async getCompetitionsDetails() : Promise<void> {
 
-		const [qualificationPeriodsSnapshot, allEventsDetails] = await Promise.all([
+		const [qualificationPeriodsSnapshot, allEventsDetails, allAthletes, allAthleteResults] = await Promise.all([
 			this.db.collection('qualification-periods').get(),
-			this.competitionEventDomain.getAll()
+			this.competitionEventDomain.getAll(),
+			this.athleteDomain.getAll(),
+			this.athleteResultDomain.getAll()
 		]);
 
 		const qualificationPeriods = qualificationPeriodsSnapshot.docs.map(y => {
@@ -95,16 +101,16 @@ export class PageService {
 
 		this.debugService.debug('dfdf', eventDetailsToSave);
 
-		let batch = this.db.batch();
+		let competitionEventBatch = this.db.batch();
 
 		eventDetailsToSave.forEach(result => {
 			if(result.id !== undefined) {
 				const docRef = this.competitionEventDomain.nativeCollection.doc(result.id);
-				batch.set(docRef, result);
+				competitionEventBatch.set(docRef, result);
 			}
 		});
 
-		await batch.commit();
+		await competitionEventBatch.commit();
 
 		const resultsPromises : Promise<ICompetition>[] = eventDetails.map((eventDetail: IEventDetails) => {
 			return this.parseEventResultsPage(browser, eventDetail);
@@ -114,31 +120,67 @@ export class PageService {
 		
 		await browser.close();
 
+		const athletesToSave: IPageAthlete[] = [];
+		const athleteResultsToSave: IAthleteResult[] = [];
+
 		//Here we are looping over all competitions.
 		for (const competition of results) {
 
 			//Here we are looping over the weight catgories for a specific competition
 			for(const weightCategoryResult of competition.weightCategoryResults) {
-	
-				const athletes: IPageAthlete[] = [];
-	
+
 				weightCategoryResult.athletes.forEach((athlete: IPageAthlete) => {
-					if(!athletes.find(x => x.id === athlete.id)) {
-						athletes.push(athlete);
+					if(!athletesToSave.find(x => x.id === athlete.id) && !allAthletes.find(x => x.id === athlete.id)) {
+						athletesToSave.push(athlete);
 					}
 				});
-	
-				let batch = this.db.batch();
-	
-				athletes.forEach((athlete: IPageAthlete) => {
-					const docRef = this.athleteDomain.nativeCollection.doc(athlete.id.toString());
-					batch.set(docRef, athlete);
+
+				weightCategoryResult.results.forEach((athleteResult: IAthleteResult) => {
+
+					const alreadyInList = athleteResultsToSave.some(x => x.athleteId === athleteResult.athleteId && x.competitionId === athleteResult.competitionId);
+					const alreadyInDatabase = allAthleteResults.some(x => x.athleteId === athleteResult.athleteId && x.competitionId === athleteResult.competitionId);
+
+					if(!alreadyInList && !alreadyInDatabase) {
+						athleteResultsToSave.push(athleteResult);
+					}
 				});
-	
-				await batch.commit();
 			}
 		}
 
+		const dbPromises: Promise<void>[] = [];
+
+		while(athletesToSave.length > 0) {
+
+			const batch = this.db.batch();
+			const athletes = athletesToSave.splice(0, 500);
+
+			athletes.forEach((athlete: IPageAthlete) => {
+				const docRef = this.athleteDomain.nativeCollection.doc(athlete.id.toString());
+				batch.set(docRef, athlete);
+			});
+
+			this.debugService.debug(`Commiting ${athletes.length} athletes to the database...`);
+
+			dbPromises.push(batch.commit());
+		}
+
+		while(athleteResultsToSave.length > 0) {
+
+			const batch = this.db.batch();
+			const athleteResults = athleteResultsToSave.splice(0, 500);
+
+			athleteResults.forEach((athleteResult: IAthleteResult) => {
+				const docRef = this.athleteResultDomain.nativeCollection.doc();
+				batch.set(docRef, athleteResult);
+			});
+
+			this.debugService.debug(`Commiting ${athleteResults.length} athlete-results to the database...`);
+
+			dbPromises.push(batch.commit());
+		}
+
+		this.debugService.debug(`Waiting for database saves...`);
+		await Promise.all(dbPromises);
 		this.debugService.debug('db write complete');
 	}
 
@@ -277,12 +319,13 @@ export class PageService {
 			return resultsTotalsDivs.map(resultTotal => {
 				/*
 				<div class="results_totals">
-					<h1>55 kg Men</h1>
+					<h1>45 kg Women</h1>
 					<table class="results">
 						<thead>
 							<tr>
 								<th class="w35" width="35"><em>Rank</em></th>
 								<th><em>Name</em></th>
+								<th class="w35 ac" width="30"><em></em></th>
 								<th class="w80" width="80"><em>Born</em></th>
 								<th class="w40" width="40"><em>Nation</em></th>
 								<th class="w50 ar" width="50"><em>B.weight</em></th>
@@ -295,69 +338,87 @@ export class PageService {
 						<tbody>
 							<tr>
 								<td class="r_dark">1</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=singh-ch-rishikanta-1998-07-05&amp;id=16397" class="e_l">SINGH CH Rishikanta</a></td>
-								<td>05.07.1998</td>
-								<td><b>IND</b></td>
-								<td class="ar">55.00</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=sukcharoen-thunya-1997-04-21&amp;id=9257" class="e_l">SUKCHAROEN Thunya</a></td>
+								<td></td>
+								<td>21.04.1997</td>
+								<td><b>THA</b></td>
+								<td class="ar">44.77</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">105</td>
-								<td class="r_dark ar">130</td>
-								<td class="r_dark ar"><b>235</b></td>
+								<td class="r_dark ar">80</td>
+								<td class="r_dark ar">106</td>
+								<td class="r_dark ar"><b>186</b></td>
 							</tr>
 							<tr class="even">
 								<td class="r_dark">2</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=brechtefeld-elson-edward-1994-03-02&amp;id=9607" class="e_l">BRECHTEFELD Elson Edward</a></td>
-								<td>02.03.1994</td>
-								<td><b>NRU</b></td>
-								<td class="ar">54.70</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=dzhumabayeva-yulduz-1998-04-22&amp;id=9211" class="e_l">DZHUMABAYEVA Yulduz</a></td>
+								<td></td>
+								<td>22.04.1998</td>
+								<td><b>TKM</b></td>
+								<td class="ar">44.90</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">93</td>
-								<td class="r_dark ar">122</td>
-								<td class="r_dark ar"><b>215</b></td>
+								<td class="r_dark ar">75</td>
+								<td class="r_dark ar">104</td>
+								<td class="r_dark ar"><b>179</b></td>
 							</tr>
 							<tr>
 								<td class="r_dark">3</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=nauari-gahuna-ian-2002-08-05&amp;id=16375" class="e_l">NAUARI Gahuna Ian</a></td>
-								<td>05.08.2002</td>
-								<td><b>PNG</b></td>
-								<td class="ar">54.65</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=nanthawong-chiraphan-1999-08-17&amp;id=13290" class="e_l">NANTHAWONG Chiraphan</a></td>
+								<td></td>
+								<td>17.08.1999</td>
+								<td><b>THA</b></td>
+								<td class="ar">44.47</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">80</td>
-								<td class="r_dark ar">108</td>
-								<td class="r_dark ar"><b>188</b></td>
+								<td class="r_dark ar">76</td>
+								<td class="r_dark ar">95</td>
+								<td class="r_dark ar"><b>171</b></td>
 							</tr>
 							<tr class="even">
 								<td class="r_dark">4</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=shadrack-walter-2000-10-06&amp;id=16166" class="e_l">SHADRACK Walter</a></td>
-								<td>06.10.2000</td>
-								<td><b>SOL</b></td>
-								<td class="ar">54.75</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=echandia-zarate-katherin-oriana-2001-08-14&amp;id=14953" class="e_l">ECHANDIA ZARATE Katherin Oriana</a></td>
+								<td></td>
+								<td>14.08.2001</td>
+								<td><b>VEN</b></td>
+								<td class="ar">44.97</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">80</td>
-								<td class="r_dark ar">105</td>
-								<td class="r_dark ar"><b>185</b></td>
+								<td class="r_dark ar">67</td>
+								<td class="r_dark ar">90</td>
+								<td class="r_dark ar"><b>157</b></td>
 							</tr>
 							<tr>
 								<td class="r_dark">5</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=sinaka-scofield-goava-1998-01-21&amp;id=16374" class="e_l">SINAKA Scofield Goava</a></td>
-								<td>21.01.1998</td>
-								<td><b>PNG</b></td>
-								<td class="ar">53.90</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=pagliaro-alessandra-1997-07-16&amp;id=6497" class="e_l">PAGLIARO Alessandra</a></td>
+								<td></td>
+								<td>16.07.1997</td>
+								<td><b>ITA</b></td>
+								<td class="ar">43.22</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">75</td>
-								<td class="r_dark ar">108</td>
-								<td class="r_dark ar"><b>183</b></td>
+								<td class="r_dark ar">70</td>
+								<td class="r_dark ar">86</td>
+								<td class="r_dark ar"><b>156</b></td>
 							</tr>
 							<tr class="even">
-								<td class="r_dark">---</td>
-								<td><a href="/new_bw/athletes_newbw/?athlete=erati-kaimauri-2004-06-13&amp;id=16373" class="e_l">ERATI Kaimauri</a></td>
-								<td>13.06.2004</td>
-								<td><b>KIR</b></td>
-								<td class="ar">53.80</td>
+								<td class="r_dark">6</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=nguyen-thi-thu-trang-2003-06-03&amp;id=14004" class="e_l">NGUYEN Thi Thu Trang</a></td>
+								<td></td>
+								<td>03.06.2003</td>
+								<td><b>VIE</b></td>
+								<td class="ar">44.93</td>
 								<td class="ac">A</td>
-								<td class="r_dark ar">---</td>
-								<td class="r_dark ar">75</td>
-								<td class="r_dark ar">---</td>
+								<td class="r_dark ar">70</td>
+								<td class="r_dark ar">81</td>
+								<td class="r_dark ar"><b>151</b></td>
+							</tr>
+							<tr>
+								<td class="r_dark">7</td>
+								<td><a href="/new_bw/athletes_newbw/?athlete=pandova-daniela-ivanova-1994-09-16&amp;id=14815" class="e_l">PANDOVA Daniela Ivanova</a></td>
+								<td></td>
+								<td>16.09.1994</td>
+								<td><b>BUL</b></td>
+								<td class="ar">45.00</td>
+								<td class="ac">A</td>
+								<td class="r_dark ar">60</td>
+								<td class="r_dark ar">81</td>
+								<td class="r_dark ar"><b>141</b></td>
 							</tr>
 						</tbody>
 					</table>
@@ -384,17 +445,17 @@ export class PageService {
 						id,
 						name: tds[1].textContent || 'unknown',
 						bioLink,
-						birthDate: tds[2].textContent || 'unknown',
-						nationAbbreviation: tds[3].textContent || 'unknown'
+						birthDate: tds[3].textContent || 'unknown',
+						nationAbbreviation: tds[4].textContent || 'unknown'
 					};
 	
 					const competitionResult = {
 						athlete,
 						rank: Number(tds[0].textContent) || 0,
-						bodyWeight: Number(tds[4].textContent) || 0,
-						snatch: Number(tds[6].textContent) || 0,
-						cj: Number(tds[7].textContent) || 0,
-						total: Number(tds[8].textContent) || 0
+						bodyWeight: Number(tds[5].textContent) || 0,
+						snatch: Number(tds[7].textContent) || 0,
+						cj: Number(tds[8].textContent) || 0,
+						total: Number(tds[9].textContent) || 0
 					};
 					
 					return competitionResult;
