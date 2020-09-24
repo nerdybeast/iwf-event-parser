@@ -203,7 +203,11 @@ export class PageService {
 			waitUntil: 'domcontentloaded' //Don't wait for external resources, we just need the dom
 		});
 
+		//this.debugService.debug(`Parsing results for: ${eventUrl}`);
+
 		const competitionResults = await this.domParser.parseEventResultsPage(eventPage, eventDetails);
+
+		this.debugService.debug(`Parsed ${competitionResults.weightCategoryResults.length} results for ${competitionResults.name} (${competitionResults.id})`);
 
 		await eventPage.close();
 
