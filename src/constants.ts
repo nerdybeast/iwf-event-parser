@@ -49,3 +49,7 @@ export enum EventCategoryEnum {
 	SILVER,
 	BRONZE
 };
+
+export enum Selectors {
+	ALL_EVENTS_TABLE = '#events_table'
+}

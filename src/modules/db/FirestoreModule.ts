@@ -8,6 +8,7 @@ import { AthleteResultDomain } from './AthleteResultDomain';
 
 //Needed for side effects
 import 'firebase/firestore';
+import { QualificationPeriodDomain } from './QualificationPeriodDomain';
 
 export const dbProvider: Provider = {
 	provide: 'db',
@@ -33,13 +34,15 @@ export const dbProvider: Provider = {
 		dbProvider,
 		CompetitionEventDomain,
 		AthleteDomain,
-		AthleteResultDomain
+		AthleteResultDomain,
+		QualificationPeriodDomain
 	],
 	exports: [
 		dbProvider,
 		CompetitionEventDomain,
 		AthleteDomain,
-		AthleteResultDomain
+		AthleteResultDomain,
+		QualificationPeriodDomain
 	]
 })
 export class FirestoreModule {

@@ -1,8 +1,5 @@
-export interface IEventDetails {
+import { IPageEventDetails } from './IPageEventDetails';
+
+export interface IEventDetails extends IPageEventDetails {
 	id: string;
-	eventLink: string;
-	date: string;
-	name: string;
-	location: string;
-	qualificationPeriod?: number;
 }

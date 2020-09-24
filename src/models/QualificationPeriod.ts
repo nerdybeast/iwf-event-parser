@@ -1,9 +1,9 @@
 export class QualificationPeriod {
 	public period: number;
-	public startDate: Date;
-	public endDate: Date;
+	public startDate: string;
+	public endDate: string;
 
-	constructor(period: number, startDate: Date, endDate: Date) {
+	constructor(period: number, startDate: string, endDate: string) {
 		this.period = period;
 		this.startDate = startDate;
 		this.endDate = endDate;
