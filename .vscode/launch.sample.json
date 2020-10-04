@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+			"type": "node",
+			"request": "launch",
+			"name": "debug",
+			"program": "${workspaceFolder}/src/dev.ts",
+			"console": "integratedTerminal",
+			"outFiles": ["${workspaceFolder}/dist/**/*.js"],
+			"sourceMaps": true,
+			"smartStep": true,
+			//https://code.visualstudio.com/docs/nodejs/nodejs-debugging#_skipping-uninteresting-code-node-chrome
+			"skipFiles": [
+				"<node_internals>/**/*.js",
+				"${workspaceFolder}/node_modules/**/*.js"
+			],
+			"preLaunchTask": "tsc: build - tsconfig.json",
+			"envFile": "${workspaceFolder}/.env"
+		}
+	]
+}

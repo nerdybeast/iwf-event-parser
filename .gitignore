@@ -85,6 +85,7 @@ typings/
 
 # VS Code IDE specific settings
 .vscode
+!.vscode/launch.sample.json
 types
 
 # Build output directory for Typescript experiment.
@@ -94,7 +95,8 @@ dist
 # In case someone forgets to delete the created config file
 vault.config
 
-# npm configuration which sets up a connection to Artifactory (packages.vivint.com)
+# npm configuration
 .npmrc
 
+# Helps speed up Typescript builds but is unique per user.
 tsconfig.tsbuildinfo
