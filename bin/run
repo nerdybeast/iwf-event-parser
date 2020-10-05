@@ -1,17 +1,19 @@
-#!/usr/bin/env node
+#!/usr/bin/env ts-node-script
 
-const fs = require('fs');
-const path = require('path');
+// const fs = require('fs');
+// const path = require('path');
 const packageJson = require('../package.json');
 
-const tsconfigPath = path.join(__dirname, '../tsconfig.json');
-const isDevelopment = fs.existsSync(tsconfigPath);
-const moduleToUse = isDevelopment ? 'src' : 'dist';
+// const tsconfigPath = path.join(__dirname, '../tsconfig.json');
+// const isDevelopment = fs.existsSync(tsconfigPath);
+// const moduleToUse = isDevelopment ? 'src' : 'dist';
 
-if (isDevelopment) {
-	require('ts-node').register({ project: tsconfigPath });
-}
+// if (isDevelopment) {
+// 	require('ts-node').register({ project: tsconfigPath });
+// }
 
-require(`../${moduleToUse}`)
-	.bootstrap(packageJson.version, isDevelopment)
+console.log('IWF Website Parser Version:', packageJson.version);
+
+require('../src')
+	.bootstrap(packageJson.version, false)
 	.catch(error => console.error('An error has occurred:', error));

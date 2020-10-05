@@ -5,7 +5,8 @@
 	"main": "index.js",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"tsc": "tsc"
+		"build": "tsc",
+		"away": "node -r ts-node/register ./src/start-process.ts"
 	},
 	"keywords": [],
 	"author": "Michael Penrod <therealnerdybeast@gmail.com>",
