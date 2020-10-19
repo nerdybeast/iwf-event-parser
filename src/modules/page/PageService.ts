@@ -58,7 +58,14 @@ export class PageService {
 
 	public async getCompetitionsDetails() : Promise<void> {
 
+		const args = [];
+
+		if(this.config.IsHeroku) {
+			args.push('--no-sandbox');
+		}
+
 		const browser = await this.puppeteer.launch({
+			args,
 			headless: this.config.IsHeadless,
 			slowMo: 50
 		});

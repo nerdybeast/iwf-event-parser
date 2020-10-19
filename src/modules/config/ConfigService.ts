@@ -31,8 +31,15 @@ export class ConfigService {
 	/**
 	 * Determines if Puppeteer should run the browser headless or not.
 	 */
-	public get IsHeadless() {
+	public get IsHeadless() : boolean {
 		return this.envConfig.HEADLESS;
+	}
+
+	/**
+	 * Determines if we are running on Heroku or not.
+	 */
+	public get IsHeroku() : boolean {
+		return this.envConfig.HEROKU;
 	}
 
 	private validate(env: IEnvConfig) : any {
@@ -45,7 +52,8 @@ export class ConfigService {
 			GOOGLE_STORAGE_BUCKET: Joi.string().required(),
 			GOOGLE_MESSAGING_SENDER_ID: Joi.string().required(),
 			GOOGLE_APP_ID: Joi.string().required(),
-			HEADLESS: Joi.boolean().default(true)
+			HEADLESS: Joi.boolean().default(true),
+			HEROKU: Joi.boolean().default(false)
 		});
 
 		const { error, value: validatedEnvConfig } = schema.validate(env, {
